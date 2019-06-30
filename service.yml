@@ -1,0 +1,12 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: app-manager
+spec:
+  selector:
+    name: app-manager
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer
