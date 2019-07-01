@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"net/http"
+	"strings"
 )
 
 func getNoOfPods(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +168,7 @@ func startApp(imagePath string, username string, appName string) {
 					TargetPort: intstr.FromInt(8000),
 				},
 			},
-			Type: apiv1.ServiceTypeLoadBalancer,
+			Type: apiv1.ServiceTypeClusterIP,
 		},
 	}
 	serviceResult, err := servicesClient.Create(service)
@@ -222,9 +223,81 @@ func startApp(imagePath string, username string, appName string) {
 }
 
 func stopAppHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Could not parse form.", http.StatusBadRequest)
+			return
+		}
+		username := r.PostForm.Get("username")
+		appName := r.PostForm.Get("appName")
+		appInstance := appName + "-" + username
+		deletePolicy := metav1.DeletePropagationForeground
+
+		config, err := rest.InClusterConfig()
+		if err != nil {
+			panic(err.Error())
+		}
+
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+		if err := deploymentsClient.Delete(appInstance, &metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,
+		}); err != nil {
+			panic(err)
+		}
+		fmt.Println("Deleted deployment.")
+
+		servicesClient := clientset.CoreV1().Services(apiv1.NamespaceDefault)
+		if err := servicesClient.Delete(appInstance, &metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,
+		}); err != nil {
+			panic(err)
+		}
+		fmt.Println("Deleted service.")
+
+		ingressClient := clientset.ExtensionsV1beta1().Ingresses(apiv1.NamespaceDefault)
+		if err := ingressClient.Delete(appInstance, &metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,
+		}); err != nil {
+			panic(err)
+		}
+		fmt.Println("Deleted ingress.")
+	}
+
 }
 
 func getAppStatusHandler(w http.ResponseWriter, r *http.Request) {
+	tokens := strings.Split(r.URL.Path, "/")
+	username := tokens[len(tokens)-2]
+	appName := tokens[len(tokens)-1]
+	appInstance := appName + "-" + username
+
+	fmt.Println("%s\n", appInstance)
+
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+	pods, err := clientset.CoreV1().Pods("").List(metav1.ListOptions{
+		LabelSelector: "name=" + appInstance,
+	})
+	if err != nil {
+		panic(err)
+	}
+	if len(pods.Items) == 0 {
+		w.Write([]byte("Missing"))
+	} else {
+		w.Write([]byte(pods.Items[0].Status.Phase))
+	}
 }
 
 func int32Ptr(i int32) *int32 { return &i }
