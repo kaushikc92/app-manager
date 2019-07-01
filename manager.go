@@ -5,6 +5,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	extensions "k8s.io/api/extensions/v1beta1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -55,6 +57,37 @@ func startApp(imagePath string, username string, appName string) {
 		panic(err.Error())
 	}
 
+	pvcResult, err := clientset.CoreV1().PersistentVolumeClaims("default").Get(appName+"-"+username, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		pvcClient := clientset.CoreV1().PersistentVolumeClaims(apiv1.NamespaceDefault)
+		pvc := &apiv1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: appName + "-" + username,
+			},
+			Spec: apiv1.PersistentVolumeClaimSpec{
+				AccessModes: []apiv1.PersistentVolumeAccessMode{
+					apiv1.ReadWriteOnce,
+				},
+				Resources: apiv1.ResourceRequirements{
+					Requests: apiv1.ResourceList{
+						apiv1.ResourceName(apiv1.ResourceStorage): resource.MustParse("10Gi"),
+					},
+				},
+			},
+		}
+		pvcResult, err = pvcClient.Create(pvc)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Created pvc %q.\n", pvcResult.GetObjectMeta().GetName())
+	} else if err != nil {
+		panic(err.Error())
+	}
+	fmt.Printf("PVC Status %s.\n", pvcResult.Status.Phase)
+	for pvcResult.Status.Phase != "Bound" {
+		pvcResult, _ = clientset.CoreV1().PersistentVolumeClaims("default").Get(appName+"-"+username, metav1.GetOptions{})
+	}
+
 	deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -89,6 +122,22 @@ func startApp(imagePath string, username string, appName string) {
 								{
 									Name:  "COLUMBUS_USERNAME",
 									Value: username,
+								},
+							},
+							VolumeMounts: []apiv1.VolumeMount{
+								{
+									MountPath: "/storage",
+									Name:      appName + "-" + username + "-data",
+								},
+							},
+						},
+					},
+					Volumes: []apiv1.Volume{
+						{
+							Name: appName + "-" + username + "-data",
+							VolumeSource: apiv1.VolumeSource{
+								PersistentVolumeClaim: &apiv1.PersistentVolumeClaimVolumeSource{
+									ClaimName: appName + "-" + username,
 								},
 							},
 						},
@@ -170,6 +219,12 @@ func startApp(imagePath string, username string, appName string) {
 		panic(err)
 	}
 	fmt.Printf("Created service %q.\n", ingressResult.GetObjectMeta().GetName())
+}
+
+func stopAppHandler(w http.ResponseWriter, r *http.Request) {
+}
+
+func getAppStatusHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func int32Ptr(i int32) *int32 { return &i }
