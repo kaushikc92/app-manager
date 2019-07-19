@@ -270,6 +270,37 @@ func stopAppHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func deleteAppStorageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Could not parse form.", http.StatusBadRequest)
+			return
+		}
+		username := r.PostForm.Get("username")
+		appName := r.PostForm.Get("appName")
+		appInstance := appName + "-" + username
+		deletePolicy := metav1.DeletePropagationForeground
+
+		config, err := rest.InClusterConfig()
+		if err != nil {
+			panic(err.Error())
+		}
+
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		pvcClient := clientset.CoreV1().PersistentVolumeClaims(apiv1.NamespaceDefault)
+		if err := pvcClient.Delete(appInstance, &metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,
+		}); err != nil {
+			panic(err)
+		}
+		fmt.Println("Deleted persistent volume claim.")
+	}
+}
+
 func getAppStatusHandler(w http.ResponseWriter, r *http.Request) {
 	tokens := strings.Split(r.URL.Path, "/")
 	username := tokens[len(tokens)-2]
