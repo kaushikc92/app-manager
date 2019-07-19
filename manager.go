@@ -189,12 +189,12 @@ func startApp(imagePath string, username string, appName string) {
 		Spec: extensions.IngressSpec{
 			Rules: []extensions.IngressRule{
 				{
-					Host: "applications.columbusecosystem.com",
+					Host: "cdrive.columbusecosystem.com",
 					IngressRuleValue: extensions.IngressRuleValue{
 						HTTP: &extensions.HTTPIngressRuleValue{
 							Paths: []extensions.HTTPIngressPath{
 								{
-									Path: "/" + username + "/" + appName + "(/|$)(.*)",
+									Path: "/app/" + username + "/" + appName + "(/|$)(.*)",
 									Backend: extensions.IngressBackend{
 										ServiceName: appName + "-" + username,
 										ServicePort: intstr.FromInt(8000),
@@ -208,7 +208,7 @@ func startApp(imagePath string, username string, appName string) {
 			TLS: []extensions.IngressTLS{
 				{
 					Hosts: []string{
-						"applications.columbusecosystem.com",
+						"cdrive.columbusecosystem.com",
 					},
 					SecretName: "tls-staging-cert",
 				},
