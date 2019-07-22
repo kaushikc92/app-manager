@@ -43,8 +43,25 @@ func startAppHandler(w http.ResponseWriter, r *http.Request) {
 		imagePath := r.PostForm.Get("imagePath")
 		username := r.PostForm.Get("username")
 		appName := r.PostForm.Get("appName")
-		startApp(imagePath, username, appName)
+		if !isAppRunning(username, appName) {
+			startApp(imagePath, username, appName)
+		}
 	}
+}
+
+func isAppRunning(username string, appName string) bool {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	_, err = clientset.AppsV1().Deployments(apiv1.NamespaceDefault).Get(appName+"-"+username, metav1.GetOptions{})
+	return !errors.IsNotFound(err)
 }
 
 func startApp(imagePath string, username string, appName string) {
