@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
@@ -43,6 +44,7 @@ func startAppHandler(w http.ResponseWriter, r *http.Request) {
 		imagePath := r.PostForm.Get("imagePath")
 		username := r.PostForm.Get("username")
 		appName := r.PostForm.Get("appName")
+		startApp(imagePath, username, appName)
 		if !isAppRunning(username, appName) {
 			startApp(imagePath, username, appName)
 		}
@@ -60,8 +62,16 @@ func isAppRunning(username string, appName string) bool {
 		panic(err.Error())
 	}
 
-	_, err = clientset.AppsV1().Deployments(apiv1.NamespaceDefault).Get(appName+"-"+username, metav1.GetOptions{})
-	return !errors.IsNotFound(err)
+	deploymentResult, err := clientset.AppsV1().Deployments(apiv1.NamespaceDefault).Get(appName+"-"+username, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		return false
+	} else if deploymentResult.Status.AvailableReplicas > 0 {
+		fmt.Println("Replicas are available")
+		return true
+	} else {
+		fmt.Println("Replicas were not available")
+		return false
+	}
 }
 
 func startApp(imagePath string, username string, appName string) {
@@ -98,9 +108,12 @@ func startApp(imagePath string, username string, appName string) {
 			panic(err)
 		}
 		fmt.Printf("Created pvc %q.\n", pvcResult.GetObjectMeta().GetName())
-	} else if err != nil {
-		panic(err.Error())
 	}
+	/*
+		else if err != nil {
+			panic(err.Error())
+		}
+	*/
 	fmt.Printf("PVC Status %s.\n", pvcResult.Status.Phase)
 	for pvcResult.Status.Phase != "Bound" {
 		pvcResult, _ = clientset.CoreV1().PersistentVolumeClaims("default").Get(appName+"-"+username, metav1.GetOptions{})
@@ -112,7 +125,8 @@ func startApp(imagePath string, username string, appName string) {
 			Name: appName + "-" + username,
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: int32Ptr(1),
+			MinReadySeconds: 5,
+			Replicas:        int32Ptr(1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"name": appName + "-" + username,
@@ -165,9 +179,14 @@ func startApp(imagePath string, username string, appName string) {
 		},
 	}
 	result, err := deploymentsClient.Create(deployment)
+
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		for err != nil && strings.HasPrefix(err.Error(), "object is being deleted") {
+			result, err = deploymentsClient.Create(deployment)
+		}
 	}
+
 	fmt.Printf("Created deployment %q.\n", result.GetObjectMeta().GetName())
 
 	servicesClient := clientset.CoreV1().Services(apiv1.NamespaceDefault)
@@ -189,9 +208,11 @@ func startApp(imagePath string, username string, appName string) {
 		},
 	}
 	serviceResult, err := servicesClient.Create(service)
-	if err != nil {
-		panic(err)
-	}
+	/*
+		if err != nil {
+			panic(err)
+		}
+	*/
 	fmt.Printf("Created service %q.\n", serviceResult.GetObjectMeta().GetName())
 
 	ingressClient := clientset.ExtensionsV1beta1().Ingresses(apiv1.NamespaceDefault)
@@ -233,9 +254,11 @@ func startApp(imagePath string, username string, appName string) {
 		},
 	}
 	ingressResult, err := ingressClient.Create(ingress)
-	if err != nil {
-		panic(err)
-	}
+	/*
+		if err != nil {
+			panic(err)
+		}
+	*/
 	fmt.Printf("Created service %q.\n", ingressResult.GetObjectMeta().GetName())
 }
 
@@ -259,30 +282,43 @@ func stopAppHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			panic(err.Error())
 		}
-
 		deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
-		if err := deploymentsClient.Delete(appInstance, &metav1.DeleteOptions{
-			PropagationPolicy: &deletePolicy,
-		}); err != nil {
-			panic(err)
-		}
+		_ = deploymentsClient.Delete(appInstance, &metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
 		fmt.Println("Deleted deployment.")
 
 		servicesClient := clientset.CoreV1().Services(apiv1.NamespaceDefault)
-		if err := servicesClient.Delete(appInstance, &metav1.DeleteOptions{
-			PropagationPolicy: &deletePolicy,
-		}); err != nil {
-			panic(err)
-		}
+		_ = servicesClient.Delete(appInstance, &metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
 		fmt.Println("Deleted service.")
 
 		ingressClient := clientset.ExtensionsV1beta1().Ingresses(apiv1.NamespaceDefault)
-		if err := ingressClient.Delete(appInstance, &metav1.DeleteOptions{
-			PropagationPolicy: &deletePolicy,
-		}); err != nil {
-			panic(err)
-		}
+		_ = ingressClient.Delete(appInstance, &metav1.DeleteOptions{PropagationPolicy: &deletePolicy})
 		fmt.Println("Deleted ingress.")
+
+		/*
+			deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+			if err := deploymentsClient.Delete(appInstance, &metav1.DeleteOptions{
+				PropagationPolicy: &deletePolicy,
+			}); err != nil {
+				panic(err)
+			}
+			fmt.Println("Deleted deployment.")
+
+			servicesClient := clientset.CoreV1().Services(apiv1.NamespaceDefault)
+			if err := servicesClient.Delete(appInstance, &metav1.DeleteOptions{
+				PropagationPolicy: &deletePolicy,
+			}); err != nil {
+				panic(err)
+			}
+			fmt.Println("Deleted service.")
+
+			ingressClient := clientset.ExtensionsV1beta1().Ingresses(apiv1.NamespaceDefault)
+			if err := ingressClient.Delete(appInstance, &metav1.DeleteOptions{
+				PropagationPolicy: &deletePolicy,
+			}); err != nil {
+				panic(err)
+			}
+			fmt.Println("Deleted ingress.")
+		*/
 	}
 
 }
@@ -318,33 +354,27 @@ func deleteAppStorageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type AppStatus struct {
+	Status string `json:"app_status"`
+}
+
 func getAppStatusHandler(w http.ResponseWriter, r *http.Request) {
 	tokens := strings.Split(r.URL.Path, "/")
-	username := tokens[len(tokens)-2]
-	appName := tokens[len(tokens)-1]
-	appInstance := appName + "-" + username
+	username := tokens[len(tokens)-3]
+	appName := tokens[len(tokens)-2]
 
-	fmt.Println("%s\n", appInstance)
+	w.Header().Set("Content-Type", "application/json")
 
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
-	pods, err := clientset.CoreV1().Pods("").List(metav1.ListOptions{
-		LabelSelector: "name=" + appInstance,
-	})
-	if err != nil {
-		panic(err)
-	}
-	if len(pods.Items) == 0 {
-		w.Write([]byte("Missing"))
+	if isAppRunning(username, appName) {
+		app_status := AppStatus{
+			Status: "Running",
+		}
+		json.NewEncoder(w).Encode(app_status)
 	} else {
-		w.Write([]byte(pods.Items[0].Status.Phase))
+		app_status := AppStatus{
+			Status: "Missing",
+		}
+		json.NewEncoder(w).Encode(app_status)
 	}
 }
 
