@@ -44,9 +44,10 @@ func startAppHandler(w http.ResponseWriter, r *http.Request) {
 		imagePath := r.PostForm.Get("imagePath")
 		username := r.PostForm.Get("username")
 		appName := r.PostForm.Get("appName")
-		startApp(imagePath, username, appName)
+		clientId := r.PostForm.Get("clientId")
+		clientSecret := r.PostForm.Get("clientSecret")
 		if !isAppRunning(username, appName) {
-			startApp(imagePath, username, appName)
+			startApp(imagePath, username, appName, clientId, clientSecret)
 		}
 	}
 }
@@ -74,7 +75,7 @@ func isAppRunning(username string, appName string) bool {
 	}
 }
 
-func startApp(imagePath string, username string, appName string) {
+func startApp(imagePath string, username string, appName string, clientId string, clientSecret string) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
@@ -154,6 +155,14 @@ func startApp(imagePath string, username string, appName string) {
 								{
 									Name:  "COLUMBUS_USERNAME",
 									Value: username,
+								},
+								{
+									Name:  "COLUMBUS_CLIENT_ID",
+									Value: clientId,
+								},
+								{
+									Name:  "COLUMBUS_CLIENT_SECRET",
+									Value: clientSecret,
 								},
 							},
 							VolumeMounts: []apiv1.VolumeMount{
@@ -355,7 +364,7 @@ func deleteAppStorageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type AppStatus struct {
-	Status string `json:"app_status"`
+	Status string `json:"appStatus"`
 }
 
 func getAppStatusHandler(w http.ResponseWriter, r *http.Request) {
